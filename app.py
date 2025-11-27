@@ -17,23 +17,26 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSz67ms_9qkcSB_O-Td
 # --- CSS CUSTOM ---
 st.markdown("""
 <style>
-    /* Foto Kandidat: Tinggi Fix & Rapi */
+    /* FOTO KANDIDAT LEBIH KECIL */
     .candidate-img img {
-        height: 130px !important;
+        height: 90px !important; /* Diubah dari 130px menjadi 90px */
         object-fit: contain !important;
         border-radius: 8px;
-        margin-bottom: 10px;
+        margin-bottom: 5px;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
     }
     /* Kartu Kandidat */
     div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlock"] {
         background-color: #f9f9f9;
         border-radius: 8px;
-        padding: 10px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        padding: 8px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
     /* Judul Nama */
     .big-name { 
-        font-size: 14px; 
+        font-size: 13px; 
         font-weight: bold; 
         white-space: nowrap;
         overflow: hidden;
@@ -43,7 +46,7 @@ st.markdown("""
     /* Tombol Pilih */
     .stButton button { 
         width: 100%; 
-        font-size: 12px;
+        font-size: 11px;
         padding: 0.2rem 0.5rem;
     }
 </style>
@@ -196,7 +199,8 @@ if menu == "Bilik Suara":
                     if img_url:
                         st.image(img_url, use_column_width=True)
                     else:
-                        st.markdown(f"<div style='height:130px; background:#e0e0e0; display:flex; align-items:center; justify-content:center; border-radius:8px;'><h1>{cid}</h1></div>", unsafe_allow_html=True)
+                        # Placeholder juga disesuaikan tingginya
+                        st.markdown(f"<div style='height:90px; background:#e0e0e0; display:flex; align-items:center; justify-content:center; border-radius:8px;'><h1>{cid}</h1></div>", unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
                     
                     st.markdown(f"<div class='big-name'>{info['nama']}</div>", unsafe_allow_html=True)
@@ -320,6 +324,7 @@ elif menu == "Panel Admin":
 
         with tab3:
             st.error("Area Berbahaya")
+            st.warning("Tindakan ini akan menghapus semua perolehan suara menjadi 0 dan mereset status token.")
             if st.button("RESET SEMUA SUARA & TOKEN"):
                 DB['votes'] = {str(i): 0 for i in range(1, 7)}
                 DB['used_tokens'] = []
