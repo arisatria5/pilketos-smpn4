@@ -1,0 +1,41 @@
+{
+  "config": {
+    "school_name": "SMP Negeri 4 Mendoyo",
+    "logo_drive_url": "https://drive.google.com/file/d/1tcrbu3S4qvsbtEJs1vkQftX0O3K0M2cq/view?usp=drive_link"
+  },
+  "candidates": {
+    "1": {
+      "nama": "Calon 1",
+      "foto_drive_url": ""
+    },
+    "2": {
+      "nama": "Calon 2",
+      "foto_drive_url": ""
+    },
+    "3": {
+      "nama": "Calon 3",
+      "foto_drive_url": ""
+    },
+    "4": {
+      "nama": "Calon 4",
+      "foto_drive_url": ""
+    },
+    "5": {
+      "nama": "Calon 5",
+      "foto_drive_url": ""
+    },
+    "6": {
+      "nama": "Calon 6",
+      "foto_drive_url": ""
+    }
+  },
+  "votes": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "5": 0,
+    "6": 0
+  },
+  "used_tokens": []
+}
