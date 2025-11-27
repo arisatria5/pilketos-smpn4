@@ -3,7 +3,7 @@ import pandas as pd
 import json
 import os
 import io
-import time # Tambahan library waktu
+import time
 from github import Github
 
 # --- KONFIGURASI HALAMAN ---
@@ -11,41 +11,39 @@ st.set_page_config(page_title="Pilketos Online", page_icon="🗳️", layout="wi
 
 # --- DATABASE KONFIGURASI ---
 FILE_DATA_JSON = "database_pilketos.json"
+# Link Google Sheets DPT
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSz67ms_9qkcSB_O-Td290-S55KiIL0kV-63lB2upMzOpn6dr2-qk_IHcRDttuk1fIIGDTPhoRTC8_8/pub?output=csv"
 
-# --- CSS CUSTOM (TAMPILAN DIPERKECIL) ---
+# --- CSS CUSTOM ---
 st.markdown("""
 <style>
-    /* Mengatur Ukuran Foto Kandidat LEBIH KECIL */
+    /* Foto Kandidat: Tinggi Fix & Rapi */
     .candidate-img img {
-        height: 130px !important; /* Ukuran diperkecil dari 180px ke 130px */
+        height: 130px !important;
         object-fit: contain !important;
         border-radius: 8px;
+        margin-bottom: 10px;
     }
-    
-    /* Mengatur Kartu Kandidat lebih padat */
+    /* Kartu Kandidat */
     div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlock"] {
         background-color: #f9f9f9;
         border-radius: 8px;
-        padding: 8px; /* Padding diperkecil */
+        padding: 10px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
-    
-    /* Judul Nama Kandidat Kecil */
+    /* Judul Nama */
     .big-name { 
-        font-size: 14px; /* Font diperkecil */
+        font-size: 14px; 
         font-weight: bold; 
-        margin-top: 5px; 
-        margin-bottom: 5px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        text-align: center;
     }
-    
     /* Tombol Pilih */
     .stButton button { 
         width: 100%; 
-        font-size: 12px; /* Tombol diperkecil */
+        font-size: 12px;
         padding: 0.2rem 0.5rem;
     }
 </style>
@@ -60,6 +58,7 @@ def get_drive_image(url_or_id):
             file_id = url_or_id.split("/d/")[1].split("/")[0]
         elif "id=" in url_or_id:
             file_id = url_or_id.split("id=")[1].split("&")[0]
+    # Menggunakan endpoint lh3 yang lebih stabil untuk hosting gambar
     return f"https://lh3.googleusercontent.com/d/{file_id}"
 
 # --- FUNGSI GITHUB DATABASE ---
@@ -82,6 +81,7 @@ def load_data_from_github():
         data = json.loads(contents.decoded_content.decode())
         return data
     except:
+        # Default Data jika file belum ada
         default_data = {
             "config": {
                 "school_name": "SMPN 4 Mendoyo",
@@ -118,12 +118,14 @@ def load_dpt():
     except: return pd.DataFrame()
 
 # --- INITIAL LOAD ---
+# Load data awal ke session state
 if 'db' not in st.session_state:
     with st.spinner('Menghubungkan ke Database...'):
         st.session_state.db = load_data_from_github()
 
 if 'page' not in st.session_state: st.session_state.page = 'home'
 
+# Shortcut Variable
 DB = st.session_state.db
 SCHOOL_NAME = DB['config']['school_name']
 LOGO_URL = get_drive_image(DB['config']['logo_drive_url'])
@@ -144,7 +146,6 @@ with st.sidebar:
     menu = st.radio("Navigasi", ["Bilik Suara", "Panel Admin"])
     
     st.markdown("---")
-    # Hitung total suara realtime
     total_suara = sum(DB['votes'].values())
     st.metric("Total Suara Masuk", total_suara)
 
@@ -161,14 +162,14 @@ if menu == "Bilik Suara":
         with col1:
             token_input = st.text_input("Masukkan Token Pemilih", placeholder="Contoh: 12345")
             if st.button("Verifikasi Token"):
-                # Reload DB untuk memastikan list token terpakai paling baru
+                # Selalu ambil data terbaru saat login untuk cek token bekas
                 latest_db = load_data_from_github()
                 if latest_db:
                     st.session_state.db = latest_db
                     DB = st.session_state.db
 
                 if token_input in DB['used_tokens']:
-                    st.error("Token ini sudah digunakan!")
+                    st.error("Token ini SUDAH DIGUNAKAN!")
                 else:
                     df = load_dpt()
                     user = df[df['Token'] == token_input]
@@ -183,7 +184,6 @@ if menu == "Bilik Suara":
         st.subheader(f"👋 Hai, {st.session_state.user_name}")
         st.caption("Silakan pilih salah satu kandidat.")
         
-        # Grid 3 Kolom
         cols = st.columns(3)
         candidates = DB['candidates']
         
@@ -192,7 +192,6 @@ if menu == "Bilik Suara":
                 with st.container():
                     img_url = get_drive_image(info['foto_drive_url'])
                     
-                    # DIV Custom CSS Image
                     st.markdown('<div class="candidate-img">', unsafe_allow_html=True)
                     if img_url:
                         st.image(img_url, use_column_width=True)
@@ -200,10 +199,9 @@ if menu == "Bilik Suara":
                         st.markdown(f"<div style='height:130px; background:#e0e0e0; display:flex; align-items:center; justify-content:center; border-radius:8px;'><h1>{cid}</h1></div>", unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
                     
-                    st.markdown(f"<div class='big-name' style='text-align:center;'>{info['nama']}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='big-name'>{info['nama']}</div>", unsafe_allow_html=True)
                     
                     if st.button(f"PILIH NO {cid}", key=f"btn_{cid}", type="primary"):
-                        # Pastikan load DB terbaru sebelum simpan agar tidak menimpa suara orang lain
                         current_db = load_data_from_github()
                         if current_db:
                             current_db['votes'][cid] += 1
@@ -212,15 +210,13 @@ if menu == "Bilik Suara":
                             with st.spinner("Merekam suara..."):
                                 save_data_to_github(current_db, f"Vote from {st.session_state.user_name}")
                                 
-                            # Update Session State lokal
                             st.session_state.db = current_db
-                            
                             del st.session_state.user_token
                             st.success("Terima Kasih! Suara direkam.")
                             st.balloons()
                             st.rerun()
                         else:
-                            st.error("Gagal koneksi database. Silakan coba lagi.")
+                            st.error("Gagal koneksi database. Coba lagi.")
 
 # ==========================================
 # HALAMAN: PANEL ADMIN
@@ -231,6 +227,20 @@ elif menu == "Panel Admin":
     pin = st.text_input("Masukkan PIN Admin", type="password")
     if pin == st.secrets["admin"]["pin"]:
         
+        # --- LOGIKA LIVE UPDATE ---
+        # Kita taruh toggle di atas agar logic refresh jalan duluan
+        col_title, col_toggle = st.columns([3, 1])
+        with col_toggle:
+            auto_refresh = st.toggle("🔴 LIVE UPDATE")
+        
+        # Jika Live Update ON: Ambil data BARU dari GitHub SEKARANG JUGA
+        if auto_refresh:
+            fresh_db = load_data_from_github()
+            if fresh_db:
+                st.session_state.db = fresh_db
+                DB = st.session_state.db # Update variabel lokal agar UI di bawah pakai data baru
+        
+        # --- TAB MENU ---
         tab1, tab2, tab3 = st.tabs(["Identitas & Upload", "Data Suara & Export", "Reset"])
         
         with tab1:
@@ -267,37 +277,19 @@ elif menu == "Panel Admin":
         with tab2:
             st.subheader("Progress Pemilihan")
             
-            # --- FITUR AUTO UPDATE ---
-            col_refresh, col_status = st.columns([2, 1])
-            with col_refresh:
-                auto_refresh = st.toggle("🔴 Aktifkan Live Update (Realtime)", value=False)
-            
-            if auto_refresh:
-                with col_status:
-                    st.caption("Memperbarui data setiap 5 detik...")
-                # Logic: Tarik data baru dari GitHub
-                new_data = load_data_from_github()
-                if new_data:
-                    st.session_state.db = new_data
-                    DB = st.session_state.db
-                time.sleep(5) # Tunggu 5 detik
-                st.rerun() # Refresh halaman
-            # -------------------------
-            
-            # Hitung DPT dari Google Sheets
+            # Hitung Statistik (Menggunakan DB yang mungkin baru saja di-refresh)
             df_dpt = load_dpt()
             total_dpt = len(df_dpt)
             suara_masuk = sum(DB['votes'].values())
             
-            if total_dpt > 0:
-                persentase = suara_masuk / total_dpt
-            else:
-                persentase = 0.0
+            persentase = (suara_masuk / total_dpt) if total_dpt > 0 else 0.0
 
+            # Progress Bar HTML
             st.markdown(f"""
                 <p><strong>Partisipasi: {suara_masuk} dari {total_dpt} DPT ({round(persentase*100, 1)}%)</strong></p>
-                <div style="width: 100%; background-color: #ddd; border-radius: 15px; margin-bottom: 20px;">
-                    <div style="width: {persentase*100}%; background-color: #28a745; height: 30px; border-radius: 15px; text-align: center; line-height: 30px; color: white;">
+                <div style="width: 100%; background-color: #e9ecef; border-radius: 15px; margin-bottom: 20px; border: 1px solid #ccc;">
+                    <div style="width: {persentase*100}%; background-color: #28a745; height: 30px; border-radius: 15px; text-align: center; color: white; line-height: 30px; font-weight: bold; transition: width 0.5s;">
+                        {round(persentase*100, 1)}%
                     </div>
                 </div>
             """, unsafe_allow_html=True)
@@ -311,14 +303,14 @@ elif menu == "Panel Admin":
             df_votes = pd.DataFrame(data_votes)
             st.dataframe(df_votes, use_container_width=True)
             
-            st.subheader("Download Laporan")
+            # Export
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                 df_votes.to_excel(writer, sheet_name='Rekap Suara', index=False)
                 df_used = pd.DataFrame({"Token Terpakai": DB['used_tokens']})
                 df_used.to_excel(writer, sheet_name='Log Token', index=False)
-                
             buffer.seek(0)
+            
             st.download_button(
                 label="📥 Download Rekap Excel (.xlsx)",
                 data=buffer,
@@ -328,13 +320,17 @@ elif menu == "Panel Admin":
 
         with tab3:
             st.error("Area Berbahaya")
-            st.warning("Tindakan ini akan menghapus semua perolehan suara menjadi 0 dan mereset status token.")
             if st.button("RESET SEMUA SUARA & TOKEN"):
                 DB['votes'] = {str(i): 0 for i in range(1, 7)}
                 DB['used_tokens'] = []
                 save_data_to_github(DB, "RESET DATA")
-                st.success("Data berhasil direset!")
+                st.success("Reset Berhasil!")
                 st.rerun()
+        
+        # --- JADWALKAN REFRESH JIKA LIVE UPDATE AKTIF ---
+        if auto_refresh:
+            time.sleep(5) # Tunggu 5 detik agar admin sempat membaca
+            st.rerun()    # Reload halaman
 
     elif pin:
         st.error("PIN Salah!")
