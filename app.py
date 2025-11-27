@@ -19,7 +19,7 @@ def get_drive_image(url_or_id):
     """Mengubah Link Sharing Google Drive menjadi Direct Image URL"""
     if not url_or_id: return None
     
-    # Ambil ID dari URL panjang
+    # 1. Ambil ID File dari URL panjang
     file_id = url_or_id
     if "drive.google.com" in url_or_id:
         if "/d/" in url_or_id:
@@ -27,8 +27,8 @@ def get_drive_image(url_or_id):
         elif "id=" in url_or_id:
             file_id = url_or_id.split("id=")[1].split("&")[0]
             
-    # Format URL agar bisa tampil di web
-    return f"https://drive.google.com/uc?export=view&id={file_id}"
+    # 2. Gunakan Endpoint lh3.googleusercontent.com (Lebih stabil untuk image hosting)
+    return f"https://lh3.googleusercontent.com/d/{file_id}"
 
 # --- FUNGSI GITHUB DATABASE ---
 def init_github():
@@ -270,3 +270,4 @@ elif menu == "Panel Admin":
 
     elif pin:
         st.error("PIN Salah!")
+
