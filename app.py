@@ -2,279 +2,271 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-import datetime
+from github import Github # Library untuk konek ke GitHub
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(
-    page_title="Pilketos SMPN 4 Mendoyo",
-    page_icon="🗳️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Pilketos Online", page_icon="🗳️", layout="wide")
 
-# --- KONSTANTA FILE LOKAL (Untuk Database Suara) ---
-FILE_VOTES = "votes.json"
-FILE_USED_TOKENS = "used_tokens.json"
-FILE_CANDIDATES = "candidates.json"
-FILE_CONFIG = "config.json"
+# --- DATABASE KONFIGURASI ---
+# File ini akan dibuat/dibaca langsung dari GitHub
+FILE_DATA_JSON = "database_pilketos.json"
 
-# --- LINK DATABASE DPT (GOOGLE SHEETS) ---
-# Mengubah link pubhtml menjadi csv agar mudah dibaca pandas
+# Link DPT (Read Only)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSz67ms_9qkcSB_O-Td290-S55KiIL0kV-63lB2upMzOpn6dr2-qk_IHcRDttuk1fIIGDTPhoRTC8_8/pub?output=csv"
 
-# --- CSS CUSTOM (Agar Tampilan Cantik) ---
+# --- FUNGSI GOOGLE DRIVE ---
+def get_drive_image(url_or_id):
+    """Mengubah Link Sharing Google Drive menjadi Direct Image URL"""
+    if not url_or_id: return None
+    
+    # Ambil ID dari URL panjang
+    file_id = url_or_id
+    if "drive.google.com" in url_or_id:
+        if "/d/" in url_or_id:
+            file_id = url_or_id.split("/d/")[1].split("/")[0]
+        elif "id=" in url_or_id:
+            file_id = url_or_id.split("id=")[1].split("&")[0]
+            
+    # Format URL agar bisa tampil di web
+    return f"https://drive.google.com/uc?export=view&id={file_id}"
+
+# --- FUNGSI GITHUB DATABASE ---
+def init_github():
+    """Koneksi ke GitHub"""
+    try:
+        token = st.secrets["github"]["token"]
+        repo_name = st.secrets["github"]["repo_name"]
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        return repo
+    except Exception as e:
+        st.error(f"Gagal koneksi GitHub: {e}. Cek secrets.toml!")
+        return None
+
+def load_data_from_github():
+    """Membaca Database JSON dari GitHub"""
+    repo = init_github()
+    if not repo: return None
+    
+    try:
+        contents = repo.get_contents(FILE_DATA_JSON)
+        data = json.loads(contents.decoded_content.decode())
+        return data
+    except:
+        # Jika file belum ada, buat struktur default
+        default_data = {
+            "config": {
+                "school_name": "SMPN 4 Mendoyo",
+                "logo_drive_url": "" # Link Logo di Drive
+            },
+            "candidates": {
+                str(i): {"nama": f"Calon {i}", "foto_drive_url": ""} for i in range(1, 7)
+            },
+            "votes": {str(i): 0 for i in range(1, 7)},
+            "used_tokens": []
+        }
+        return default_data
+
+def save_data_to_github(data, message="Update data"):
+    """Menyimpan/Update Database JSON ke GitHub"""
+    repo = init_github()
+    if not repo: return
+    
+    content = json.dumps(data, indent=2)
+    try:
+        # Coba update file jika ada
+        contents = repo.get_contents(FILE_DATA_JSON)
+        repo.update_file(contents.path, message, content, contents.sha)
+        st.success("✅ Data berhasil disimpan ke GitHub!")
+    except:
+        # Jika belum ada, buat file baru
+        try:
+            repo.create_file(FILE_DATA_JSON, "Init database", content)
+            st.success("✅ Database baru dibuat di GitHub!")
+        except Exception as e:
+            st.error(f"Gagal menyimpan: {e}")
+
+# --- FUNGSI DPT (GOOGLE SHEETS) ---
+@st.cache_data(ttl=60)
+def load_dpt():
+    try:
+        df = pd.read_csv(SHEET_URL)
+        df['Token'] = df['Token'].astype(str).str.strip()
+        return df
+    except: return pd.DataFrame()
+
+# --- INITIAL LOAD ---
+if 'db' not in st.session_state:
+    with st.spinner('Menghubungkan ke Database GitHub...'):
+        st.session_state.db = load_data_from_github()
+
+if 'page' not in st.session_state: st.session_state.page = 'home'
+
+# Shortcut Variabel Data
+DB = st.session_state.db
+SCHOOL_NAME = DB['config']['school_name']
+LOGO_URL = get_drive_image(DB['config']['logo_drive_url'])
+
+# --- CSS ---
 st.markdown("""
 <style>
-    .big-font { font-size:24px !important; font-weight: bold; }
-    .header-style { font-size:30px; font-weight: bold; color: #2E86C1; text-align: center; margin-bottom: 20px;}
-    .success-msg { padding: 20px; background-color: #D4EDDA; color: #155724; border-radius: 10px; text-align: center; }
-    .card { background-color: #f9f9f9; padding: 20px; border-radius: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); text-align: center; }
-    div.stButton > button:first-child { width: 100%; background-color: #2E86C1; color: white; }
-    div.stButton > button:first-child:hover { background-color: #1B4F72; border-color: #1B4F72; }
+    .card { background: #f0f2f6; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 10px;}
+    .big-name { font-size: 20px; font-weight: bold; margin-top: 10px; }
+    .stButton button { width: 100%; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNGSI MANAJEMEN DATA ---
-
-@st.cache_data(ttl=60) # Cache data selama 60 detik agar tidak terlalu sering request ke Google
-def load_dpt_from_sheets():
-    try:
-        # Membaca CSV langsung dari Google Sheets
-        df = pd.read_csv(SHEET_URL)
-        # Pastikan kolom Token menjadi string dan bersih dari spasi
-        df['Token'] = df['Token'].astype(str).str.strip()
-        return df
-    except Exception as e:
-        st.error(f"Gagal memuat Database DPT: {e}")
-        return pd.DataFrame()
-
-def init_files():
-    # Inisialisasi file JSON lokal jika belum ada
-    if not os.path.exists(FILE_VOTES):
-        default_votes = {str(i): 0 for i in range(1, 7)}
-        with open(FILE_VOTES, "w") as f: json.dump(default_votes, f)
-    
-    if not os.path.exists(FILE_USED_TOKENS):
-        with open(FILE_USED_TOKENS, "w") as f: json.dump([], f)
-        
-    if not os.path.exists(FILE_CANDIDATES):
-        # Data Default Kandidat
-        candidates = {str(i): {"nama": f"Kandidat {i}", "foto": None} for i in range(1, 7)}
-        with open(FILE_CANDIDATES, "w") as f: json.dump(candidates, f)
-        
-    if not os.path.exists(FILE_CONFIG):
-        with open(FILE_CONFIG, "w") as f: json.dump({"sekolah": "SMPN 4 Mendoyo"}, f)
-
-def get_candidates():
-    with open(FILE_CANDIDATES, "r") as f: return json.load(f)
-
-def save_candidates(data):
-    with open(FILE_CANDIDATES, "w") as f: json.dump(data, f)
-
-def get_votes():
-    with open(FILE_VOTES, "r") as f: return json.load(f)
-
-def add_vote(candidate_id):
-    votes = get_votes()
-    votes[str(candidate_id)] += 1
-    with open(FILE_VOTES, "w") as f: json.dump(votes, f)
-
-def get_used_tokens():
-    with open(FILE_USED_TOKENS, "r") as f: return json.load(f)
-
-def mark_token_used(token):
-    used = get_used_tokens()
-    used.append(str(token))
-    with open(FILE_USED_TOKENS, "w") as f: json.dump(used, f)
-
-def reset_all_data():
-    if os.path.exists(FILE_VOTES): os.remove(FILE_VOTES)
-    if os.path.exists(FILE_USED_TOKENS): os.remove(FILE_USED_TOKENS)
-    init_files()
-
-# --- INISIALISASI ---
-init_files()
-if 'page' not in st.session_state: st.session_state.page = 'login'
-if 'user_info' not in st.session_state: st.session_state.user_info = {}
-
-config = json.load(open(FILE_CONFIG))
-NAMA_SEKOLAH = config.get("sekolah", "SMPN 4 Mendoyo")
-
-# --- SIDEBAR ---
+# ==========================================
+# SIDEBAR
+# ==========================================
 with st.sidebar:
-    st.image("https://img.icons8.com/color/480/indonesia.png", width=100) # Ganti URL ini dengan logo sekolah online
-    st.title("E-VOTING")
-    st.markdown(f"**{NAMA_SEKOLAH}**")
-    st.markdown("---")
-    
-    # Hitung Total Suara
-    votes = get_votes()
-    total_suara = sum(votes.values())
-    st.metric("Total Suara Masuk", total_suara)
-    
-    st.markdown("---")
-    if st.button("Panel Admin"):
-        st.session_state.page = "admin_login"
-        st.rerun()
-    
-    if st.button("Bilik Suara (Home)"):
-        st.session_state.page = "login"
-        st.session_state.user_info = {}
-        st.rerun()
+    if LOGO_URL:
+        st.image(LOGO_URL, width=120)
+    else:
+        st.header("🗳️")
         
-    # Tampilkan Nama Pemilih Aktif di Kiri Bawah
-    if st.session_state.page == 'voting' and 'nama' in st.session_state.user_info:
-        st.markdown("---")
-        st.info(f"👤 Pemilih Aktif:\n\n**{st.session_state.user_info['nama']}**")
-
-# --- HALAMAN 1: LOGIN TOKEN ---
-if st.session_state.page == 'login':
-    st.markdown(f"<div class='header-style'>PILKETOS {NAMA_SEKOLAH}<br>PERIODE 2025</div>", unsafe_allow_html=True)
+    st.markdown(f"### {SCHOOL_NAME}")
+    st.caption("Sistem E-Voting Terintegrasi")
+    st.markdown("---")
     
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        with st.container(border=True):
-            st.subheader("Verifikasi Pemilih")
-            token_input = st.text_input("Masukkan Token Anda", placeholder="Contoh: 12345").strip()
-            
-            if st.button("Masuk Bilik Suara"):
-                if token_input:
-                    # 1. Cek apakah token sudah dipakai
-                    used_tokens = get_used_tokens()
-                    if token_input in used_tokens:
-                        st.error("❌ Token ini SUDAH DIGUNAKAN untuk memilih.")
-                    else:
-                        # 2. Cek database Google Sheets
-                        df_dpt = load_dpt_from_sheets()
-                        
-                        # Filter data berdasarkan token
-                        user_match = df_dpt[df_dpt['Token'].astype(str) == token_input]
-                        
-                        if not user_match.empty:
-                            nama_pemilih = user_match.iloc[0]['Nama']
-                            st.session_state.user_info = {'token': token_input, 'nama': nama_pemilih}
-                            st.session_state.page = 'voting'
-                            st.toast(f"Selamat datang, {nama_pemilih}!", icon="👋")
-                            st.rerun()
-                        else:
-                            st.error("❌ Token TIDAK DITEMUKAN di Database DPT.")
+    menu = st.radio("Navigasi", ["Bilik Suara", "Panel Admin"])
+    
+    st.markdown("---")
+    # Tampilkan Total Suara (Realtime dari session)
+    total_suara = sum(DB['votes'].values())
+    st.metric("Total Suara Masuk", total_suara)
+
+# ==========================================
+# HALAMAN: BILIK SUARA
+# ==========================================
+if menu == "Bilik Suara":
+    
+    # State Login Token
+    if 'user_token' not in st.session_state:
+        st.title("🔐 Masuk Bilik Suara")
+        st.write(f"Selamat datang di pemilihan {SCHOOL_NAME}")
+        
+        token_input = st.text_input("Masukkan Token Pemilih", placeholder="Contoh: 12345")
+        
+        if st.button("Verifikasi Token"):
+            # Cek apakah token sudah dipakai (dari GitHub DB)
+            if token_input in DB['used_tokens']:
+                st.error("Token ini sudah digunakan!")
+            else:
+                # Cek DPT (Google Sheets)
+                df = load_dpt()
+                user = df[df['Token'] == token_input]
+                
+                if not user.empty:
+                    st.session_state.user_token = token_input
+                    st.session_state.user_name = user.iloc[0]['Nama']
+                    st.rerun()
                 else:
-                    st.warning("Mohon isi token.")
-
-# --- HALAMAN 2: BILIK SUARA (VOTING) ---
-elif st.session_state.page == 'voting':
-    nama = st.session_state.user_info.get('nama', 'Siswa')
-    st.markdown(f"<h2 style='text-align: center;'>Halo, {nama}. Silakan Tentukan Pilihanmu!</h2>", unsafe_allow_html=True)
-    st.warning("⚠️ Pilihan hanya dapat dilakukan satu kali. Pilih dengan bijak.")
+                    st.error("Token tidak ditemukan di DPT!")
     
-    candidates = get_candidates()
-    
-    # Layout Grid (3 Kolom)
-    cols = st.columns(3)
-    
-    for idx, (cand_id, info) in enumerate(candidates.items()):
-        # Logika pembagian kolom (modulus 3)
-        with cols[idx % 3]:
-            with st.container(border=True):
-                # Placeholder Foto (Karena online, foto harus URL atau diupload)
-                # Di sini kita pakai placeholder icon jika tidak ada foto
-                st.markdown(f"<h1 style='text-align: center; color: gray;'>{cand_id}</h1>", unsafe_allow_html=True)
-                
-                # Nama Kandidat
-                st.markdown(f"<h3 style='text-align: center;'>{info['nama']}</h3>", unsafe_allow_html=True)
-                
-                if st.button(f"PILIH NO {cand_id}", key=f"vote_{cand_id}", use_container_width=True):
-                    # Proses Voting
-                    add_vote(cand_id)
-                    mark_token_used(st.session_state.user_info['token'])
+    else:
+        # State Sudah Login -> Tampilkan Kandidat
+        st.subheader(f"👋 Hai, {st.session_state.user_name}")
+        st.info("Silakan pilih salah satu kandidat. Klik tombol 'PILIH' di bawah foto.")
+        
+        cols = st.columns(3)
+        candidates = DB['candidates']
+        
+        for idx, (cid, info) in enumerate(candidates.items()):
+            with cols[idx % 3]:
+                with st.container(border=True):
+                    # Tampilkan Foto dari Drive
+                    img_url = get_drive_image(info['foto_drive_url'])
+                    if img_url:
+                        st.image(img_url, use_column_width=True)
+                    else:
+                        st.markdown(f"<div style='height:200px; background:#ddd; display:flex; align-items:center; justify-content:center;'><h1>{cid}</h1></div>", unsafe_allow_html=True)
                     
-                    st.session_state.page = 'success'
+                    st.markdown(f"<div class='big-name'>{info['nama']}</div>", unsafe_allow_html=True)
+                    st.write("")
+                    
+                    if st.button(f"PILIH NO {cid}", key=f"btn_{cid}", type="primary"):
+                        # UPDATE DATA LOCAL
+                        DB['votes'][cid] += 1
+                        DB['used_tokens'].append(st.session_state.user_token)
+                        
+                        # SIMPAN KE GITHUB
+                        with st.spinner("Merekam suara ke cloud..."):
+                            save_data_to_github(DB, f"Vote from {st.session_state.user_name}")
+                        
+                        # Logout
+                        del st.session_state.user_token
+                        st.success("Suara berhasil direkam! Terima kasih.")
+                        st.balloons()
+                        st.rerun()
+
+# ==========================================
+# HALAMAN: PANEL ADMIN
+# ==========================================
+elif menu == "Panel Admin":
+    st.title("⚙️ Pengaturan Sekolah & Kandidat")
+    
+    pin = st.text_input("Masukkan PIN Admin", type="password")
+    if pin == st.secrets["admin"]["pin"]:
+        
+        tab1, tab2, tab3 = st.tabs(["Identitas Sekolah", "Upload Kandidat", "Data & Reset"])
+        
+        # TAB 1: Identitas
+        with tab1:
+            st.subheader("Ubah Identitas")
+            with st.form("form_sekolah"):
+                new_name = st.text_input("Nama Sekolah", value=SCHOOL_NAME)
+                new_logo = st.text_input("Link Logo (Google Drive)", value=DB['config']['logo_drive_url'], placeholder="Tempel Link Google Drive di sini...")
+                st.caption("Upload logo ke Folder Drive Anda, klik kanan 'Share' > 'Copy Link', lalu tempel di sini.")
+                
+                if st.form_submit_button("Simpan Identitas"):
+                    DB['config']['school_name'] = new_name
+                    DB['config']['logo_drive_url'] = new_logo
+                    save_data_to_github(DB, "Update Identitas Sekolah")
                     st.rerun()
 
-# --- HALAMAN 3: SUKSES MEMILIH ---
-elif st.session_state.page == 'success':
-    st.balloons()
-    st.markdown("""
-        <div class='success-msg'>
-            <h1>✅ SUARA BERHASIL DISIMPAN</h1>
-            <p>Terima kasih telah berpartisipasi dalam Pilketos tahun ini.</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.write("")
-    col1, col2, col3 = st.columns([1,1,1])
-    with col2:
-        if st.button("Kembali ke Halaman Login"):
-            st.session_state.page = 'login'
-            st.session_state.user_info = {}
-            st.rerun()
+        # TAB 2: Kandidat
+        with tab2:
+            st.subheader("Edit Data Kandidat")
+            st.info(f"Untuk Foto: Upload foto ke [Google Drive Folder]({ 'https://drive.google.com/drive/folders/13xYgtj5ZtX-afE8crWa1OQRn1KyXwAfR?usp=sharing' }), Copy Link-nya, dan tempel di bawah.")
+            
+            candidates = DB['candidates']
+            with st.form("form_kandidat"):
+                for cid, info in candidates.items():
+                    st.markdown(f"**Kandidat No {cid}**")
+                    col_a, col_b = st.columns([1, 2])
+                    with col_a:
+                        # Preview Kecil
+                        prev_url = get_drive_image(info['foto_drive_url'])
+                        if prev_url: st.image(prev_url, width=100)
+                        else: st.write("No Image")
+                    with col_b:
+                        new_cname = st.text_input(f"Nama", value=info['nama'], key=f"n_{cid}")
+                        new_cphoto = st.text_input(f"Link Foto GDrive", value=info['foto_drive_url'], key=f"p_{cid}")
+                        
+                        # Update Local Var
+                        candidates[cid]['nama'] = new_cname
+                        candidates[cid]['foto_drive_url'] = new_cphoto
+                    st.divider()
+                
+                if st.form_submit_button("Simpan Semua Kandidat"):
+                    DB['candidates'] = candidates
+                    save_data_to_github(DB, "Update Kandidat")
+                    st.rerun()
 
-# --- HALAMAN 4: ADMIN LOGIN ---
-elif st.session_state.page == 'admin_login':
-    st.title("Login Administrator")
-    pin = st.text_input("Masukkan PIN Admin", type="password")
-    if st.button("Masuk"):
-        if pin == "789789":
-            st.session_state.page = "admin_panel"
-            st.rerun()
-        else:
-            st.error("PIN Salah")
-
-# --- HALAMAN 5: ADMIN PANEL ---
-elif st.session_state.page == 'admin_panel':
-    st.title("🎛️ Panel Administrator")
-    
-    tab1, tab2, tab3 = st.tabs(["Manajemen Kandidat", "Data Suara", "Pengaturan"])
-    
-    with tab1:
-        st.subheader("Edit Nama Kandidat")
-        candidates = get_candidates()
-        new_data = candidates.copy()
-        
-        has_changes = False
-        for c_id, info in candidates.items():
-            new_name = st.text_input(f"Nama Calon No {c_id}", value=info['nama'])
-            if new_name != info['nama']:
-                new_data[c_id]['nama'] = new_name
-                has_changes = True
-        
-        if has_changes:
-            if st.button("Simpan Perubahan Nama"):
-                save_candidates(new_data)
-                st.success("Data kandidat diperbarui!")
+        # TAB 3: Data Suara & Reset
+        with tab3:
+            st.subheader("Rekap Suara")
+            st.json(DB['votes'])
+            
+            st.divider()
+            st.error("Area Berbahaya")
+            if st.button("RESET SEMUA SUARA & TOKEN"):
+                DB['votes'] = {str(i): 0 for i in range(1, 7)}
+                DB['used_tokens'] = []
+                save_data_to_github(DB, "RESET DATA")
+                st.success("Data berhasil direset!")
                 st.rerun()
 
-    with tab2:
-        st.subheader("Rekap Perolehan Suara")
-        votes = get_votes()
-        df_votes = pd.DataFrame(list(votes.items()), columns=['No Urut', 'Jumlah Suara'])
-        
-        # Merge dengan nama kandidat
-        cands = get_candidates()
-        df_votes['Nama Kandidat'] = df_votes['No Urut'].apply(lambda x: cands[x]['nama'])
-        
-        # Reorder columns
-        df_votes = df_votes[['No Urut', 'Nama Kandidat', 'Jumlah Suara']]
-        
-        st.dataframe(df_votes, use_container_width=True)
-        
-        # Download Excel
-        # Streamlit butuh convert ke CSV/Excel stream
-        csv = df_votes.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            "Download CSV",
-            csv,
-            "rekap_suara.csv",
-            "text/csv",
-            key='download-csv'
-        )
-
-    with tab3:
-        st.error("Zona Bahaya")
-        if st.button("RESET SEMUA DATA (Suara & Token Terpakai)"):
-            reset_all_data()
-            st.success("Semua data telah direset!")
-            st.rerun()
-            
-        st.info("ℹ️ Data Pemilih (DPT) diambil secara live dari Google Sheets yang Anda berikan.")
-        st.write(f"Link Database: `{SHEET_URL}`")
+    elif pin:
+        st.error("PIN Salah!")
